@@ -2,9 +2,11 @@ package schematic
 
 import (
 	"fmt"
+	"reflect"
+
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/world"
-	"reflect"
+	"github.com/df-mc/worldupgrader/blockupgrader"
 )
 
 // schematic implements the structure of a Schematic, providing methods to read from it.
@@ -57,7 +59,19 @@ func (s *schematic) At(x, y, z int, _ func(int, int, int) world.Block) (world.Bl
 	if !ok {
 		return block.Air{}, nil
 	}
-	ret, ok := world.BlockByName(n.name, n.properties)
+
+	// Cheap copy to avoid accidentally delete mapping's data
+	properties := make(map[string]interface{})
+	for k, v := range n.properties {
+		properties[k] = v
+	}
+
+	u := blockupgrader.Upgrade(blockupgrader.BlockState{
+		Name:       n.name,
+		Properties: properties,
+	})
+
+	ret, ok := world.BlockByName(u.Name, u.Properties)
 	if !ok {
 		return block.Air{}, nil
 	}
