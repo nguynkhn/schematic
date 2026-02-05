@@ -2,9 +2,11 @@ package schematic
 
 import (
 	"fmt"
+	"math"
+	"reflect"
+
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/world"
-	"reflect"
 )
 
 // schematic implements the structure of a Schematic, providing methods to read from it.
@@ -13,8 +15,9 @@ type schematic struct {
 	w, h, l   int
 	materials string
 
-	blocks   []uint8
-	metadata []uint8
+	blocks       []uint8
+	metadata     []uint8
+	tileEntities map[int]map[string]any
 }
 
 // init initialises the schematic structure, parsing several values from the NBT data.
@@ -29,6 +32,15 @@ func (s *schematic) init() error {
 	s.blocks, s.metadata = blockSlice.Interface().([]byte), metadataSlice.Interface().([]byte)
 	if len(s.blocks) != s.w*s.h*s.l || len(s.metadata) != s.w*s.h*s.l {
 		return fmt.Errorf("blocks and metadata were expected to be %v bytes long both (%v*%v*%v), but blocks has length %v and metadata has length %v", s.w*s.h*s.l, s.w, s.h, s.l, len(s.blocks), len(s.metadata))
+	}
+	s.tileEntities = make(map[int]map[string]any)
+	if unorderedTileEntities, ok := s.Data["TileEntities"].([]any); ok {
+		for _, n := range unorderedTileEntities {
+			nbt := n.(map[string]any)
+			x, y, z := int(nbt["x"].(int32)), int(nbt["y"].(int32)), int(nbt["z"].(int32))
+			index := (y*s.l+z)*s.w + x
+			s.tileEntities[index] = nbt
+		}
 	}
 	return nil
 }
@@ -60,6 +72,13 @@ func (s *schematic) At(x, y, z int, _ func(int, int, int) world.Block) (world.Bl
 	ret, ok := world.BlockByName(n.name, n.properties)
 	if !ok {
 		return block.Air{}, nil
+	}
+	if nbter, ok := ret.(world.NBTer); ok {
+		nbt, ok := s.tileEntities[index]
+		if _, hash := ret.Hash(); !ok && hash != math.MaxUint64 { // not an unknownBlock and not in tile entities list
+			nbt = nbter.EncodeNBT() // initialize with nothing
+		}
+		ret = nbter.DecodeNBT(nbt).(world.Block)
 	}
 	return ret, nil
 }
